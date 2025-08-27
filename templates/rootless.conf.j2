@@ -1,0 +1,3 @@
+{{ ansible_managed | ansible.builtin.comment }}
+[Service]
+User={{ podman_api_socket_user.name | default(podman_api_socket_user) }}

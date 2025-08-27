@@ -1,0 +1,21 @@
+---
+galaxy_info:
+  author: 'Sebastian Hamann'
+  description: 'Set up Podman'
+
+  license: MIT
+
+  min_ansible_version: '2.10'
+
+  platforms:
+    - name: Alpine
+      version:
+        - all
+    - name: GenericLinux
+
+  galaxy_tags:
+    - container
+    - podman
+    - system
+
+dependencies: []

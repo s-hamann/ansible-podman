@@ -1,0 +1,30 @@
+{{ ansible_managed | ansible.builtin.comment }}
+{% macro print_table(table, data) %}
+[{{ table }}]
+{% for key, value in data.items() if value is not mapping %}
+{% if value is string %}
+{{ key }} = "{{ value }}"
+{% elif value is boolean %}
+{% if table.split('.') | count >= 3 %}
+{# Only "string bool" in subsubtables #}
+{{ key }} = "{{ value | ansible.builtin.ternary('true', 'false') }}"
+{% else %}
+{{ key }} = {{ value | ansible.builtin.ternary('true', 'false') }}
+{% endif %}
+{% elif value is number %}
+{{ key }} = {{ value }}
+{% elif value is sequence %}
+{{ key }} = [
+{% for v in value %}
+    "{{ v }}",
+{% endfor %}
+]
+{% endif %}
+{% endfor %}
+{% for subtable, subdata in data.items() if subdata is mapping %}
+
+{{ print_table(table ~ '.' ~ subtable, subdata) }}
+{% endfor %}
+{% endmacro %}
+
+{{ print_table('storage', podman_storage_conf) }}

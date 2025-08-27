@@ -1,0 +1,3 @@
+[Socket]
+ListenStream=
+ListenStream={{ podman_api_socket_uri | ansible.builtin.regex_replace('^(unix|tcp)://', '') | ansible.builtin.quote }}

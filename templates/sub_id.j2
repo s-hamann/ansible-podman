@@ -1,0 +1,6 @@
+{{ ansible_managed | ansible.builtin.comment }}
+{% set id = podman_first_subuid %}
+{% for user in podman_users %}
+{{ user }}:{{ id }}:65536
+{% set id = id + 65536 %}
+{% endfor %}

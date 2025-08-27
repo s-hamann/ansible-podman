@@ -1,0 +1,176 @@
+---
+- name: 'Gather OS specific variables'
+  ansible.builtin.include_vars: "{{ vars_file }}"
+  loop:
+    - default.yml
+    - "{{ ansible_facts['os_family'] | lower }}.yml"
+    - "{{ ansible_facts['distribution'] | lower }}.yml"
+    - "{{ ansible_facts['distribution'] | lower }}-{{ ansible_facts['distribution_major_version'] }}.yml"
+    - "{{ ansible_facts['distribution'] | lower }}-{{ ansible_facts['distribution_version'] | ansible.builtin.regex_search('[0-9]+\\.[0-9]+') }}.yml"
+    - "{{ ansible_facts['distribution'] | lower }}-{{ ansible_facts['distribution_version'] }}.yml"
+  loop_control:
+    loop_var: vars_file
+  when: "(vars_file is ansible.builtin.abs and vars_file is ansible.builtin.file) or (vars_file is not ansible.builtin.abs and (role_path ~ '/vars/' ~ vars_file) is ansible.builtin.file)"
+  tags:
+    - always
+
+- name: 'Ensure configuration consistency'
+  ansible.builtin.set_fact:
+    podman_users: "{{ [podman_api_socket_user.name | default(podman_api_socket_user)] | ansible.builtin.union(podman_users | default([])) }}"
+  when: "podman_api_socket_user is defined and podman_api_socket_user != 'root'"
+
+- name: 'Install Podman'
+  ansible.builtin.package:
+    name: "{{ podman_packages }}"
+    state: present
+
+- name: 'Create Podman system socket user group'
+  ansible.builtin.group:
+    name: "{{ podman_api_socket_user.group }}"
+    system: true
+    state: present
+  when: "podman_api_socket_user.group is defined and podman_api_socket_user != 'root'"
+
+- name: 'Create Podman system socket user'
+  ansible.builtin.user:
+    name: "{{ podman_api_socket_user.name | default(podman_api_socket_user) }}"
+    password: "{{ podman_api_socket_user.password | default('*') }}"
+    group: "{{ podman_api_socket_user.group | default(omit) }}"
+    groups: "{{ podman_api_socket_user.groups | default(omit) }}"
+    shell: "{{ podman_api_socket_user.shell | default('/sbin/nologin') }}"
+    home: "{{ podman_api_socket_user.home | default(omit) }}"
+    create_home: true
+    comment: "{{ podman_api_socket_user.comment | default(omit) }}"
+    system: true
+    state: present
+  when: "podman_api_socket_user is defined and podman_api_socket_user != 'root'"
+
+- name: 'Set up SubUID mappings for Podman users'
+  ansible.builtin.template:
+    dest: '/etc/subuid'
+    src: sub_id.j2
+    owner: root
+    group: root
+    mode: '0644'
+  when: "podman_users is defined"
+
+- name: 'Set up SubGID mappings for Podman users'
+  ansible.builtin.template:
+    dest: '/etc/subgid'
+    src: sub_id.j2
+    owner: root
+    group: root
+    mode: '0644'
+  when: "podman_users is defined"
+
+- name: 'Enable gcr.io mirror'
+  ansible.builtin.copy:
+    dest: '/etc/containers/registries.conf.d/001-mirror.conf'
+    src: 001-mirror.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: 'Configure Podman storage'
+  ansible.builtin.template:
+    dest: '/etc/containers/storage.conf'
+    src: 'storage.conf.j2'
+    owner: root
+    group: root
+    mode: '0644'
+  when: "podman_storage_conf is defined"
+
+- name: 'Configure Podman API socket (systemd)'
+  when: "ansible_facts['service_mgr'] == 'systemd' and podman_api_socket_user is defined"
+  block:
+    - name: "Create override directory for {{ podman_service_name }}.service"
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ podman_service_name }}.service.d/"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: "podman_api_socket_user != 'root'"
+
+    - name: "Install override file for {{ podman_service_name }}.service"
+      ansible.builtin.template:
+        dest: "/etc/systemd/system/{{ podman_service_name }}.service.d/rootless.conf"
+        src: rootless.conf.j2
+        owner: root
+        group: root
+        mode: '0644'
+      when: "podman_api_socket_user != 'root'"
+      notify:
+        - podman_reload_service_files
+        - podman_restart
+
+    - name: "Remove override file for {{ podman_service_name }}.service"
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ podman_service_name }}.service.d/rootless.conf"
+        state: absent
+      when: "podman_api_socket_user == 'root'"
+      notify:
+        - podman_reload_service_files
+        - podman_restart
+
+    - name: "Create override directory for {{ podman_service_name }}.socket"
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ podman_service_name }}.socket.d/"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: "podman_api_socket_uri is defined"
+
+    - name: "Install override file for {{ podman_service_name }}.socket"
+      ansible.builtin.template:
+        dest: "/etc/systemd/system/{{ podman_service_name }}.socket.d/uri.conf"
+        src: uri.conf.j2
+        owner: root
+        group: root
+        mode: '0644'
+      when: "podman_api_socket_uri is defined"
+      notify:
+        - podman_reload_service_files
+        - podman_restart
+
+    - name: "Remove override file for {{ podman_service_name }}.socket"
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ podman_service_name }}.socket.d/uri.conf"
+        state: absent
+      when: "podman_api_socket_uri is not defined"
+      notify:
+        - podman_reload_service_files
+        - podman_restart
+
+- name: 'Configure Podman API socket (OpenRC)'
+  when: "ansible_facts['service_mgr'] == 'openrc' and podman_api_socket_user is defined"
+  block:
+    - name: 'Set Podman API socket user (OpenRC)'
+      ansible.builtin.lineinfile:
+        path: "/etc/conf.d/{{ podman_service_name }}"
+        line: "podman_user={{ podman_api_socket_user.name | default(podman_api_socket_user) | ansible.builtin.quote }}"
+        regexp: '^\s*#?\s*podman_user=.*$'
+        create: true
+        owner: root
+        group: root
+        mode: '0644'
+        state: present
+
+    - name: 'Set Podman API socket URI (OpenRC)'
+      ansible.builtin.lineinfile:
+        path: "/etc/conf.d/{{ podman_service_name }}"
+        line: "podman_uri={{ podman_api_socket_uri | ansible.builtin.quote }}"
+        regexp: '^\s*#?\s*podman_uri=.*$'
+        create: true
+        owner: root
+        group: root
+        mode: '0644'
+        state: present
+      when: "podman_api_socket_uri is defined"
+
+- name: "{{ podman_api_socket_user is defined | ansible.builtin.ternary('Enable and start', 'Disable and stop') }} Podman system socket"
+  ansible.builtin.service:
+    name: "{{ podman_service_name ~ ('.socket' if ansible_facts['service_mgr'] == 'systemd' else '') }}"
+    enabled: "{{ podman_api_socket_user is defined }}"
+    state: "{{ ansible_facts['is_chroot'] | ansible.builtin.ternary(omit, 'started' if podman_api_socket_user is defined else 'stopped') }}"
