@@ -9,3 +9,4 @@
   ansible.builtin.service:
     name: "{{ podman_service_name }}"
     state: "{{ ansible_facts['is_chroot'] | ansible.builtin.ternary(omit, 'restarted') }}"
+  listen: podman_restart
