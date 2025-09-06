@@ -1,0 +1,2 @@
+{{ ansible_managed | ansible.builtin.comment }}
+D {{ (podman_api_socket_uri | default('unix:///run/podman/podman.sock')).removeprefix('unix://') | ansible.builtin.dirname }} 0750 {{ podman_api_socket_user.name | default(podman_api_socket_user) }} {{ podman_api_socket_user.group | default('') }}

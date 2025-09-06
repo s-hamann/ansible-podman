@@ -143,6 +143,31 @@
         - podman_reload_service_files
         - podman_restart
 
+    # Systemd is, of course, capable of creating this directory when starting
+    # the podman.socket unit. It also sets sensible directory permissions by
+    # default and provides a way to customize them.
+    # However, the target system may handle /run/podman via tmpfiles.d, taking
+    # management of this specific directory away from systemd and podman.
+    # Hence, we need to use tmpfiles.d as well to set the correct access
+    # permissions for rootless podman.
+    - name: 'Create Podman socket directory on system startup'
+      ansible.builtin.template:
+        dest: '/etc/tmpfiles.d/podman.conf'
+        src: tmpfiles.conf.j2
+        owner: root
+        group: root
+        mode: '0644'
+      when: "(podman_api_socket_uri | default('unix:///run/podman/podman.sock')).removeprefix('unix://') | ansible.builtin.dirname == '/run/podman' and podman_api_socket_user != 'root'"
+
+    - name: 'Set correct permissions for Podman socket directory'
+      ansible.builtin.file:
+        path: "{{ (podman_api_socket_uri | default('unix:///run/podman/podman.sock')).removeprefix('unix://') | ansible.builtin.dirname }}"
+        state: directory
+        owner: "{{ podman_api_socket_user.name | default(podman_api_socket_user) }}"
+        group: "{{ podman_api_socket_user.group | default(omit) }}"
+        mode: '0750'
+      when: "(podman_api_socket_uri | default('unix:///run/podman/podman.sock')).removeprefix('unix://') | ansible.builtin.dirname == '/run/podman' and podman_api_socket_user != 'root'"
+
 - name: 'Configure Podman API socket (OpenRC)'
   when: "ansible_facts['service_mgr'] == 'openrc' and podman_api_socket_user is defined"
   block:
