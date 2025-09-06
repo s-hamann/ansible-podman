@@ -8,6 +8,15 @@ Requirements
 
 This role has no special requirements on the controller.
 
+However, Ansible needs to become an unprivileged user if all of the following conditions are met:
+* The target system runs systemd.
+* The user as whom Ansible connects to the target system is not `root`.
+* The Podman API socket is enabled for a non-root user (rootless Podman, see `podman_api_socket_user` below).
+
+Becoming an unprivileged user only works if Ansible is configured appropriately.
+Refer to [the Ansible documentation](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_privilege_escalation.html#risks-of-becoming-an-unprivileged-user) for more information.
+The easiest way may be to enable pipelining in `ansible.cfg` and not using `su` as the become method.
+
 Role Variables
 --------------
 
