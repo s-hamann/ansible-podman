@@ -156,6 +156,7 @@
         group: root
         mode: '0644'
         state: present
+      notify: podman_restart
 
     - name: 'Set Podman API socket URI (OpenRC)'
       ansible.builtin.lineinfile:
@@ -168,6 +169,7 @@
         mode: '0644'
         state: present
       when: "podman_api_socket_uri is defined"
+      notify: podman_restart
 
 - name: "{{ podman_api_socket_user is defined | ansible.builtin.ternary('Enable and start', 'Disable and stop') }} Podman system socket"
   ansible.builtin.service:
